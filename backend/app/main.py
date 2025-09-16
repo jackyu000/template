@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from pathlib import Path
 import asyncio
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from .middleware.cors import setup_cors
 from .middleware.logging import log_requests
@@ -34,7 +35,18 @@ app.include_router(dashboard.router)
 
 static_dir = Path(__file__).parent / "static"
 if static_dir.exists():
-    app.mount("/", StaticFiles(directory=static_dir, html=True), name="static")
+
+    class SPAStaticFiles(StaticFiles):
+        """Return SPA entrypoint when deep links miss static files."""
+        async def get_response(self, path, scope):
+            try:
+                return await super().get_response(path, scope)
+            except StarletteHTTPException as exc:
+                if exc.status_code == 404 and scope["method"] in {"GET", "HEAD"}:
+                    return await super().get_response("index.html", scope)
+                raise
+
+    app.mount("/", SPAStaticFiles(directory=static_dir, html=True), name="static")
 
 
 @app.get("/livez")
